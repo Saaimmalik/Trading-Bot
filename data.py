@@ -51,3 +51,36 @@ def update_candle(price, timestamp):
     }
 
     return completed_candle, True
+
+
+def load_historical_candles(bars):
+    """
+    Seed the `candles` list with historical bars fetched from Alpaca at
+    startup, so the strategy has enough data to run immediately instead of
+    waiting ~50 minutes for live candles to build up.
+
+    `bars` should already be sorted oldest -> newest (same order live
+    candles get appended in). Each `bar` is an Alpaca Bar object with
+    .timestamp/.open/.high/.low/.close attributes - we convert it into our
+    own plain-dict candle format so the rest of the code doesn't need to
+    know or care whether a candle came from history or from live ticks.
+
+    Mutates `candles` in place (clear + append) rather than replacing it
+    with a new list, so the `candles` reference already imported in
+    main.py/strategy.py keeps pointing at the same list and sees the data.
+    """
+    candles.clear()
+
+    for bar in bars:
+        candles.append({
+            "start": bar.timestamp,
+            "open": bar.open,
+            "high": bar.high,
+            "low": bar.low,
+            "close": bar.close,
+        })
+
+    if len(candles) > MAX_CANDLES:
+        del candles[:-MAX_CANDLES]
+
+    return len(candles)

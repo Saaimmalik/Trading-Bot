@@ -1,12 +1,18 @@
 from dotenv import load_dotenv
 import os
+from datetime import datetime, timedelta, timezone
 
 from alpaca.data.live import StockDataStream
+from alpaca.data.historical import StockHistoricalDataClient
+from alpaca.data.requests import StockBarsRequest
+from alpaca.data.timeframe import TimeFrame
+from alpaca.data.enums import DataFeed
+from alpaca.common.enums import Sort
 from alpaca.trading.client import TradingClient
 
 from strategy import moving_average_strategy
 from broker import get_current_position, place_order, wait_for_fill
-from data import update_candle, candles
+from data import update_candle, load_historical_candles, candles
 
 
 load_dotenv()
@@ -27,6 +33,14 @@ trading_client = TradingClient(
 
 
 stream = StockDataStream(
+    API_KEY,
+    API_SECRET
+)
+
+
+# Separate client just for one-off historical data requests (not live
+# streaming) - used once at startup to preload candles.
+historical_client = StockHistoricalDataClient(
     API_KEY,
     API_SECRET
 )
@@ -106,6 +120,27 @@ async def handle_trade(data):
 
     else:
         print("Signal is HOLD -> no order needed")
+
+
+# Preload historical candles so the strategy has 200 candles of data right
+# away, instead of needing to wait ~200 live minutes for `candles` to fill up.
+# `end` is set to 1 minute ago so we never pull back the still-forming
+# "current" minute as if it were a completed candle.
+historical_request = StockBarsRequest(
+    symbol_or_symbols=SYMBOL,
+    timeframe=TimeFrame.Minute,
+    end=datetime.now(timezone.utc) - timedelta(minutes=1),
+    limit=200,
+    sort=Sort.DESC,
+    feed=DataFeed.IEX  # free/paper accounts only have access to the IEX feed,
+                        # not SIP - same feed the live stream already uses
+)
+
+historical_bars = historical_client.get_stock_bars(historical_request)[SYMBOL]
+historical_bars.reverse()  # Alpaca gives newest-first with sort=DESC; flip to oldest-first
+
+loaded_count = load_historical_candles(historical_bars)
+print(f"Loaded {loaded_count} historical candles for {SYMBOL}")
 
 
 stream.subscribe_trades(
